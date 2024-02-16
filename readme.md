@@ -5,14 +5,14 @@ The **Dispatcher** library is designed to offer a straightforward yet highly ada
 ## Task Definition
 
 Tasks can be defined by implementing the task Interface:
-```
+```go
 type Task interface {
 	Type() string
 	Retry() int
 }
 ```
 As an Example:
-```
+```go
 type DataRetrievalTask struct {
     query Query // you can embed any data you need in the execution phase
 }
@@ -27,11 +27,11 @@ func (task *DataRetrievalTask) Retry() int {
 ```
 Each task is associated with an executor which uses the embedded data inside the task and executes it. Executors should have the 
 following singnature:
-```
+```go
 type Executor = func(ctx context.Context, task any) error
 ```
 As an Example:
-```
+```go
 func RetrieveData(ctx context.Context, t any) error {
     task := t.(DataRetrievalTask) // embedded data in task
 
@@ -43,7 +43,7 @@ func RetrieveData(ctx context.Context, t any) error {
 
 After defining your tasks, you can use an instance of TaskDispatcher to register and then submit tasks. note that task registration using 
 ```Task()``` method must happen in program entrypoint so that the executors are valid on app restart:
-```
+```go
 // 10 is the task limit for each queue and 20 is the number of worker goroutines
 td := dispatcher.Default(10, 20)
 
