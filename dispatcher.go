@@ -13,28 +13,28 @@ import (
 )
 
 const (
-	BgChannel    = "bg-channel"
+	BgQueue      = "bg-queue"
 	BG_PRODUCERS = 5
 )
 
 type Dispatcher interface {
 	Task(task any, executor Executor) error
 
-	Spawn(channel string, task Task) (int, error)
+	Spawn(queue string, task Task) (int, error)
 
 	SpawnTimer(executor Executor, interval time.Duration)
 
 	SpawnBg(task Task) (int, error)
 
-	SpawnRealtimeBg(task Task)
+	SpawnRealtimeBg(executor RealtimeExecutor)
 
-	Dispatch(ctx context.Context, channel string) error
+	Dispatch(ctx context.Context, queue string) error
 
-	DispatchAll(ctx context.Context, channel string)
+	DispatchAll(ctx context.Context, queue string)
 
-	DispatchFilter(ctx context.Context, channel string, t Task) error
+	DispatchFilter(ctx context.Context, queue string, t Task) error
 
-	RetrivePendingTasks(ctx context.Context, channel string) []history.TaskReport
+	RetrivePendingTasks(ctx context.Context, queue string) []history.TaskReport
 
 	Remove(queue string, index int) error
 
@@ -105,7 +105,7 @@ func (tm *TaskDispatcher) initRunner() {
 			select {
 			case <-tm.ctx.Done():
 				return
-			case task := <-tm.queue.BlockingPop(BgChannel):
+			case task := <-tm.queue.BlockingPop(BgQueue):
 				decodedTask, wrapper, err := tm.deserialize(task)
 				if err != nil {
 					continue
@@ -122,7 +122,7 @@ func (tm *TaskDispatcher) initRunner() {
 						wrapper.Retries--
 						encodedTask, err := serial.Serialize(decodedTask)
 						if err == nil {
-							tm.queue.Push(BgChannel, encodedTask)
+							tm.queue.Push(BgQueue, encodedTask)
 						}
 					}
 				})
@@ -145,11 +145,11 @@ func (tm *TaskDispatcher) spawnTimer(exec Executor, ticker *time.Ticker) {
 	}()
 }
 
-func (tm *TaskDispatcher) Spawn(channel string, task Task) (int, error) {
+func (tm *TaskDispatcher) Spawn(queue string, task Task) (int, error) {
 	if _, exists := tm.types.Load(task.Type()); !exists {
 		return 0, ErrUnregisteredTask
 	}
-	if tm.TaskExists(context.Background(), channel, task.Type()) {
+	if tm.TaskExists(context.Background(), queue, task.Type()) {
 		return 0, ErrTaskAlreadyExists
 	}
 
@@ -162,7 +162,7 @@ func (tm *TaskDispatcher) Spawn(channel string, task Task) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	index, err := tm.queue.Push(channel, data)
+	index, err := tm.queue.Push(queue, data)
 	if err != nil {
 		return 0, err
 	}
@@ -170,11 +170,11 @@ func (tm *TaskDispatcher) Spawn(channel string, task Task) (int, error) {
 	return index, nil
 }
 
-func (tm *TaskDispatcher) TaskExists(ctx context.Context, channel, taskType string) bool {
-	if channel == BgChannel {
+func (tm *TaskDispatcher) TaskExists(ctx context.Context, queue, taskType string) bool {
+	if queue == BgQueue {
 		return false
 	}
-	tasks := tm.RetrivePendingTasks(ctx, channel)
+	tasks := tm.RetrivePendingTasks(ctx, queue)
 
 	for i := range tasks {
 		if tasks[i].Type == taskType {
@@ -186,7 +186,7 @@ func (tm *TaskDispatcher) TaskExists(ctx context.Context, channel, taskType stri
 }
 
 func (tm *TaskDispatcher) SpawnBg(task Task) (int, error) {
-	i, err := tm.Spawn(BgChannel, task)
+	i, err := tm.Spawn(BgQueue, task)
 	if err != nil {
 		return 0, err
 	}
@@ -194,24 +194,23 @@ func (tm *TaskDispatcher) SpawnBg(task Task) (int, error) {
 	return i, nil
 }
 
-func (tm *TaskDispatcher) SpawnRealtimeBg(task Task) {
+func (tm *TaskDispatcher) SpawnRealtimeBg(exec RealtimeExecutor) {
 	tm.pool.Submit(func() {
-		execute, _ := tm.executors.Load(task.Type())
-		execute.(Executor)(tm.ctx, task)
+		exec(tm.ctx)
 	})
 }
 
-func (tm *TaskDispatcher) Dispatch(ctx context.Context, channel string) error {
-	task, err := tm.queue.Pop(channel)
+func (tm *TaskDispatcher) Dispatch(ctx context.Context, queue string) error {
+	task, err := tm.queue.Pop(queue)
 	if err != nil {
 		return err
 	}
 
-	return tm.dispatch(ctx, task, channel)
+	return tm.dispatch(ctx, task, queue)
 
 }
 
-func (tm *TaskDispatcher) dispatch(ctx context.Context, task []byte, channel string) error {
+func (tm *TaskDispatcher) dispatch(ctx context.Context, task []byte, queue string) error {
 	decodedTask, wrapper, err := tm.deserialize(task)
 	if err != nil {
 		return err
@@ -220,7 +219,7 @@ func (tm *TaskDispatcher) dispatch(ctx context.Context, task []byte, channel str
 	report := history.TaskReport{
 		Type:      decodedTask.(Task).Type(),
 		Status:    "success",
-		Channel:   channel,
+		Queue:     queue,
 		Submitted: wrapper.Submitted,
 	}
 
@@ -229,21 +228,21 @@ func (tm *TaskDispatcher) dispatch(ctx context.Context, task []byte, channel str
 	err = execute.(Executor)(ctx, decodedTask)
 	if err != nil {
 		if decodedTask.(Task).Retry() > 0 {
-			tm.queue.Push(channel, task)
+			tm.queue.Push(queue, task)
 			return nil
 		} else {
 			report.Status = "failed"
 		}
 	}
 
-	if report.Channel != BgChannel {
+	if report.Queue != BgQueue {
 		go tm.history.Append(context.Background(), report)
 	}
 	return err
 }
 
-func (tm *TaskDispatcher) DispatchFilter(ctx context.Context, channel string, t Task) error {
-	tlist, err := tm.queue.List(channel)
+func (tm *TaskDispatcher) DispatchFilter(ctx context.Context, queue string, t Task) error {
+	tlist, err := tm.queue.List(queue)
 	if err != nil {
 		return err
 	}
@@ -255,8 +254,8 @@ func (tm *TaskDispatcher) DispatchFilter(ctx context.Context, channel string, t 
 		}
 
 		if wrapper.Type == t.Type() {
-			tm.dispatch(ctx, task, channel)
-			tm.queue.Remove(channel, i)
+			tm.dispatch(ctx, task, queue)
+			tm.queue.Remove(queue, i)
 			return nil
 		}
 	}
@@ -264,17 +263,17 @@ func (tm *TaskDispatcher) DispatchFilter(ctx context.Context, channel string, t 
 	return nil
 }
 
-func (tm *TaskDispatcher) DispatchAll(ctx context.Context, channel string) {
+func (tm *TaskDispatcher) DispatchAll(ctx context.Context, queue string) {
 	for {
-		err := tm.Dispatch(ctx, channel)
+		err := tm.Dispatch(ctx, queue)
 		if err != nil {
 			return
 		}
 	}
 }
 
-func (tm *TaskDispatcher) RetrivePendingTasks(ctx context.Context, channel string) []history.TaskReport {
-	tasks, err := tm.queue.List(channel)
+func (tm *TaskDispatcher) RetrivePendingTasks(ctx context.Context, queue string) []history.TaskReport {
+	tasks, err := tm.queue.List(queue)
 	if err != nil {
 		return nil
 	}
@@ -287,7 +286,7 @@ func (tm *TaskDispatcher) RetrivePendingTasks(ctx context.Context, channel strin
 			ID:        uint(i),
 			Type:      wrapper.Type,
 			Status:    "pending",
-			Channel:   channel,
+			Queue:     queue,
 			Submitted: wrapper.Submitted.UTC(),
 		}
 	}
@@ -309,7 +308,7 @@ func (tm *TaskDispatcher) Remove(queue string, index int) error {
 	tm.history.Append(context.Background(), history.TaskReport{
 		Type:      task.(Task).Type(),
 		Status:    "removed",
-		Channel:   queue,
+		Queue:     queue,
 		Submitted: wrapper.Submitted.UTC(),
 	})
 	return tm.queue.Remove(queue, index)
@@ -317,7 +316,7 @@ func (tm *TaskDispatcher) Remove(queue string, index int) error {
 
 func (tm *TaskDispatcher) RetrieveTaskHistory(ctx context.Context, query history.Query) []history.TaskReport {
 	history, _ := tm.history.Retrieve(ctx, query)
-	pending := tm.RetrivePendingTasks(ctx, query.Channel)
+	pending := tm.RetrivePendingTasks(ctx, query.Queue)
 
 	pending = append(pending, history...)
 

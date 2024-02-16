@@ -22,7 +22,7 @@ func (q *List) Push(queue string, ts []byte) (int, error) {
 	if err != nil {
 		return 0, dispatcher.ErrCreateEntity
 	}
-	if length >= q.limit && queue != dispatcher.BgChannel {
+	if length >= q.limit && queue != dispatcher.BgQueue {
 		return 0, dispatcher.ErrFullQueue
 	}
 

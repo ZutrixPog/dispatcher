@@ -41,7 +41,8 @@ func RetrieveData(ctx context.Context, t any) error {
 
 ## Task Submission and Execution
 
-After defining your tasks, you can use an instance of TaskDispatcher to register and then submit tasks:
+After defining your tasks, you can use an instance of TaskDispatcher to register and then submit tasks. note that task registration using 
+```Task()``` method must happen in program entrypoint so that the executors are valid on app restart:
 ```
 // 10 is the task limit for each queue and 20 is the number of worker goroutines
 td := dispatcher.Default(10, 20)
@@ -58,4 +59,16 @@ td.Release()
 
 ## Tasks
 
-TODO: document different types of tasks
+There are four task spawning methods each specific to a different kind of task:
+
+1. ```Spawn(queue string, task Task) (int, error)```: <br>
+    spawns a maually triggered task on the specified channel which can be triggered by executing one of the following methods:
+    - ```Dispatch(ctx context.Context, queue string)``` : triggers a single task from the specified queue.
+    - ```DispatchAll(ctx context.Context, queue string)``` : triggers all tasks in the specified queue.
+    - ```DispatchFilter(ctx context.Context, queue string, t Task)```: triggers a tasks of the provided type in a queue.
+    
+2. ```SpawnTimer(executor Executor, interval time.Duration)```: <br> spawns a cronjob.
+
+3. ```SpawnBg(task Task) (int, error)```: <br> Spawns a backgroud task that can be persisted and executed by available runners.
+
+4. ```SpawnRealtimeBg(executor RealtimeExecutor)```: <br> submits a task to the worker pool without persisting it in a queue. the task is lost on system restart. 

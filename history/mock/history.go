@@ -36,8 +36,8 @@ func (repo *MockHistoryRepo) Retrieve(ctx context.Context, query history.Query) 
 		if query.Status != "" {
 			cond = cond && repo.history[i].Status == query.Status
 		}
-		if query.Channel != "" {
-			cond = cond && repo.history[i].Channel == query.Channel
+		if query.Queue != "" {
+			cond = cond && repo.history[i].Queue == query.Queue
 		}
 
 		if cond {

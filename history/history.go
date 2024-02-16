@@ -16,17 +16,17 @@ type TaskReport struct {
 	ID        uint      `gorm:"primaryKey;not null;unique;autoIncrement" json:"id"`
 	Type      string    `gorm:"not null" json:"type"`
 	Status    string    `gorm:"not null" json:"status"`
-	Channel   string    `gorm:"not null" json:"channel"`
+	Queue     string    `gorm:"not null" json:"queue"`
 	Submitted time.Time `json:"submitted"`
 	CreatedAt time.Time `json:"completed,omitempty"`
 }
 
 type Query struct {
-	Limit   int
-	Offset  int
-	Status  string
-	Type    string
-	Channel string
+	Limit  int
+	Offset int
+	Status string
+	Type   string
+	Queue  string
 }
 
 func (query Query) BuildGormQuery(ctx context.Context, db *gorm.DB) *gorm.DB {
@@ -48,8 +48,8 @@ func (query Query) BuildGormQuery(ctx context.Context, db *gorm.DB) *gorm.DB {
 		queryBuilder = queryBuilder.Where(&TaskReport{Type: query.Type})
 	}
 
-	if query.Channel != "" {
-		queryBuilder = queryBuilder.Where(&TaskReport{Channel: query.Channel})
+	if query.Queue != "" {
+		queryBuilder = queryBuilder.Where(&TaskReport{Queue: query.Queue})
 	}
 
 	queryBuilder = queryBuilder.Order("created_at DESC")

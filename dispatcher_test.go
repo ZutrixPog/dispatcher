@@ -263,7 +263,7 @@ func TestRemoval(t *testing.T) {
 		require.Equal(t, c.len, len(list), c.desc)
 	}
 
-	hist := manager.RetrieveTaskHistory(context.Background(), history.Query{Channel: queue, Status: "removed", Limit: 10})
+	hist := manager.RetrieveTaskHistory(context.Background(), history.Query{Queue: queue, Status: "removed", Limit: 10})
 	require.Equal(t, 2, len(hist))
 }
 

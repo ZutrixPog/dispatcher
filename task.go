@@ -18,3 +18,4 @@ type TaskWrapper struct {
 }
 
 type Executor = func(ctx context.Context, task any) error
+type RealtimeExecutor = func(ctx context.Context) error
